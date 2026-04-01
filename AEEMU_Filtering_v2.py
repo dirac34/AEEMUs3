@@ -120,6 +120,37 @@ BEST_FILTER_CONFIGS = {
 }
 
 
+def load_best_filters_from_ablation(dataset: str, results_dir: str = 'results') -> dict:
+    """
+    Load the best filter configuration found by the ablation study for a
+    given dataset.  Returns the filter-dict (e.g. {'kalman': True, 'ema': True})
+    or None if no ablation JSON is found.
+    """
+    import glob
+    dataset_tag = dataset.replace('-', '').replace(' ', '_')
+    pattern = os.path.join(results_dir, f'filter_ablation_results_{dataset_tag}_*.json')
+    files = sorted(glob.glob(pattern))
+    if not files:
+        return None
+    latest = files[-1]  # most recent timestamp
+    try:
+        with open(latest) as f:
+            data = json.load(f)
+        best_name = data.get('summary', {}).get('best_configuration')
+        if not best_name:
+            return None
+        # configurations dict stores the exact filter kwargs for every config
+        filter_cfg = data.get('configurations', {}).get(best_name)
+        if filter_cfg is not None:
+            print(f"  📂 Loaded best filters from ablation ({os.path.basename(latest)}):")
+            print(f"     → '{best_name}': {filter_cfg}")
+            return dict(filter_cfg)   # shallow copy
+        return None
+    except Exception as e:
+        print(f"  ⚠️  Could not load ablation JSON ({latest}): {e}")
+        return None
+
+
 # ================================================================
 # V2: UNIFIED SOTA COMPARISON
 # ================================================================
@@ -128,6 +159,7 @@ def compare_with_sota_full(
     dataset: str = 'ml-100k',
     n_folds: int = 10,
     aeemu_filter_configs: list = None,
+    results_dir: str = 'results',
 ):
     """
     Unified SOTA comparison: all baselines + AEEMU variants on SAME folds.
@@ -148,13 +180,28 @@ def compare_with_sota_full(
         dataset: Dataset identifier
         n_folds: Number of cross-validation folds (recommend 10)
         aeemu_filter_configs: List of filter config names to test.
-            Default: ['all_filters', 'best_three', 'no_filters']
+            Default: ['all_filters', 'best_from_ablation', 'no_filters']
+            'best_from_ablation' is resolved dynamically from the most recent
+            filter_ablation_results_<dataset>_*.json in results_dir; falls back
+            to the hardcoded 'best_three' (kalman+adaptive+ema) if not found.
+        results_dir: Directory that contains ablation JSON files.
 
     Returns:
         dict: Complete results for all methods
     """
+    # ── Resolve dynamic best-filter config from ablation ─────────────────────
+    dynamic_best = load_best_filters_from_ablation(dataset, results_dir)
+    if dynamic_best is not None:
+        BEST_FILTER_CONFIGS['best_from_ablation'] = dynamic_best
+        default_configs = ['all_filters', 'best_from_ablation', 'no_filters']
+    else:
+        # Fall back to hardcoded best_three
+        BEST_FILTER_CONFIGS.setdefault('best_from_ablation', BEST_FILTER_CONFIGS['best_three'])
+        default_configs = ['all_filters', 'best_from_ablation', 'no_filters']
+        print(f"  ⚠️  No ablation JSON found for '{dataset}' — using hardcoded best_three.")
+
     if aeemu_filter_configs is None:
-        aeemu_filter_configs = ['all_filters', 'best_three', 'no_filters']
+        aeemu_filter_configs = default_configs
 
     print("=" * 80)
     print("🏆 UNIFIED SOTA COMPARISON (v2)")
@@ -825,7 +872,8 @@ def compare_with_sota_full_multi(n_folds: int = 10):
             result = compare_with_sota_full(
                 dataset=ds,
                 n_folds=n_folds,
-                aeemu_filter_configs=['all_filters', 'best_three', 'no_filters'],
+                aeemu_filter_configs=None,  # auto-resolved from ablation
+                results_dir='results',
             )
             all_results[ds] = result
         except Exception as e:
@@ -1058,11 +1106,12 @@ if __name__ == "__main__":
         compare_with_sota_full_multi(n_folds=args.folds)
 
     elif args.sota_full:
-        configs = args.best_config or ['all_filters', 'best_three', 'no_filters']
+        configs = args.best_config if args.best_config else None  # None = auto from ablation
         compare_with_sota_full(
             dataset=args.dataset,
             n_folds=args.folds,
             aeemu_filter_configs=configs,
+            results_dir='results',
         )
 
     elif args.filter_ablation:
