@@ -1,0 +1,14 @@
+{
+  "timestamp": "20260404_082932",
+  "simplex": {
+    "rmse": 1.7774821223715092,
+    "mae": 1.4594514981456774,
+    "test_samples": 22194
+  },
+  "aeemu_best": {
+    "configuration": "no_filters",
+    "rmse": 0.8965493056069025,
+    "mae": 0.7517020048184874
+  },
+  "improvement_vs_simplex_pct": 49.56071319520614
+}
